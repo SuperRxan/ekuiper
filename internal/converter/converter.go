@@ -1,4 +1,4 @@
-// Copyright 2022-2023 EMQ Technologies Co., Ltd.
+// Copyright 2023 EMQ Technologies Co., Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/lf-edge/ekuiper/internal/converter/binary"
+	"github.com/lf-edge/ekuiper/internal/converter/can"
 	"github.com/lf-edge/ekuiper/internal/converter/delimited"
 	"github.com/lf-edge/ekuiper/internal/converter/json"
 	"github.com/lf-edge/ekuiper/pkg/ast"
@@ -29,18 +30,22 @@ import (
 // The columns information is defined in the source side, like file source
 type Instantiator func(schemaFileName string, SchemaMessageName string, delimiter string) (message.Converter, error)
 
-// init once and read only
-var converters = map[string]Instantiator{
-	message.FormatJson: func(_ string, _ string, _ string) (message.Converter, error) {
-		return json.GetConverter()
-	},
-	message.FormatBinary: func(_ string, _ string, _ string) (message.Converter, error) {
-		return binary.GetConverter()
-	},
-	message.FormatDelimited: func(_ string, _ string, delimiter string) (message.Converter, error) {
-		return delimited.NewConverter(delimiter)
-	},
-}
+var ( // init once and read only
+	converters = map[string]Instantiator{
+		message.FormatJson: func(_ string, _ string, _ string) (message.Converter, error) {
+			return json.GetConverter()
+		},
+		message.FormatBinary: func(_ string, _ string, _ string) (message.Converter, error) {
+			return binary.GetConverter()
+		},
+		message.FormatDelimited: func(_ string, _ string, delimiter string) (message.Converter, error) {
+			return delimited.NewConverter(delimiter)
+		},
+		message.FormatCan: func(schemaFile string, _ string, _ string) (message.Converter, error) {
+			return can.NewConverter(schemaFile)
+		},
+	}
+)
 
 func GetOrCreateConverter(options *ast.Options) (message.Converter, error) {
 	t := strings.ToLower(options.FORMAT)
@@ -51,11 +56,10 @@ func GetOrCreateConverter(options *ast.Options) (message.Converter, error) {
 	schemaName := options.SCHEMAID
 	if schemaName != "" {
 		r := strings.Split(schemaName, ".")
-		if len(r) != 2 {
-			return nil, fmt.Errorf("invalid schemaId: %s", schemaName)
-		}
 		schemaFile = r[0]
-		schemaName = r[1]
+		if len(r) >= 2 {
+			schemaName = r[1]
+		}
 	}
 	if c, ok := converters[t]; ok {
 		return c(schemaFile, schemaName, options.DELIMITER)
