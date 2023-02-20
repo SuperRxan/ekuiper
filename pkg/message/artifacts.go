@@ -20,7 +20,7 @@ const (
 	FormatProtobuf  = "protobuf"
 	FormatDelimited = "delimited"
 	FormatCustom    = "custom"
-	FormatCan       = "can"
+	FormatCan       = "canjson"
 
 	DefaultField = "self"
 	MetaKey      = "__meta"

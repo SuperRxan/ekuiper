@@ -25,7 +25,7 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/montanaflynn/stats v0.7.0
 	github.com/msgpack-rpc/msgpack-rpc-go v0.0.0-20131026060856-c76397e1782b
-	github.com/ngjaying/can v0.0.0-20230201090322-c5f2d20f4ec3
+	github.com/ngjaying/can v0.0.0-20230202071527-8601d0e34fdb
 	github.com/pebbe/zmq4 v1.2.9
 	github.com/prometheus/client_golang v1.14.0
 	github.com/redis/go-redis/v9 v9.0.3

@@ -15,15 +15,17 @@
 package can
 
 import (
+	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/lf-edge/ekuiper/internal/conf"
+
+	"github.com/ngjaying/can"
 	"github.com/ngjaying/can/pkg/descriptor"
 	"github.com/ngjaying/can/pkg/generate"
-	"github.com/ngjaying/can/pkg/socketcan"
 
 	"github.com/lf-edge/ekuiper/pkg/message"
 )
@@ -31,33 +33,47 @@ import (
 // The converter for socketCan format
 // Expect to receive a socketCan bytes array [16]byte with canId and data inside
 
+type packedFrames struct {
+	Meta   map[string]interface{} `json:"meta,omitempty"`
+	Frames []can.Frame            `json:"frames,omitempty"`
+}
+
 type Converter struct {
 	messages map[uint32]*descriptor.Message
 }
 
-func (c *Converter) Encode(d interface{}) ([]byte, error) {
+func (c *Converter) Encode(_ interface{}) ([]byte, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
 func (c *Converter) Decode(b []byte) (interface{}, error) {
-	frame := socketcan.Frame{}
-	frame.UnmarshalBinary(b)
-	if frame.IsError() {
-		return nil, fmt.Errorf("error frame received: %v", frame.DecodeErrorFrame())
+	//frame := socketcan.Frame{}
+	//frame.UnmarshalBinary(b)
+	//if frame.IsError() {
+	//	return nil, fmt.Errorf("error frame received: %v", frame.DecodeErrorFrame())
+	//}
+	//canFrame := frame.DecodeFrame()
+	p := &packedFrames{}
+	err := json.Unmarshal(b, p)
+	//canFrame := &can.Frame{}
+	//err := canFrame.UnmarshalJSON(b)
+	if err != nil {
+		return nil, fmt.Errorf("invalid frame json `%s` received: %v", b, err)
 	}
-	canFrame := frame.DecodeFrame()
-	desc, ok := c.messages[canFrame.ID]
-	if !ok {
-		return nil, fmt.Errorf("cannot find message %d", canFrame.ID)
+	if p.Frames == nil {
+		return nil, fmt.Errorf("invalid frame json `%s`, no frames", b)
 	}
-	if desc != nil {
-		result := make(map[string]interface{})
-		desc.DecodeToMap(&canFrame, result)
-		return result, nil
-	} else {
-		return nil, fmt.Errorf("can't find message descriptor for %d", canFrame.ID)
+	result := make(map[string]interface{})
+	for _, frame := range p.Frames {
+		desc, ok := c.messages[frame.ID]
+		if !ok {
+			conf.Log.Errorf("cannot find message %d", frame.ID)
+			continue
+		}
+		desc.DecodeToMap(&frame, result)
 	}
+	return result, nil
 }
 
 func NewConverter(dbcPath string) (message.Converter, error) {
@@ -99,7 +115,7 @@ func NewConverter(dbcPath string) (message.Converter, error) {
 			}
 		}
 	} else {
-		dbc, err := ioutil.ReadFile(dbcPath)
+		dbc, err := os.ReadFile(dbcPath)
 		if nil != err {
 			return nil, err
 		}

@@ -16,8 +16,6 @@ package can
 
 import (
 	"fmt"
-	"github.com/ngjaying/can"
-	"github.com/ngjaying/can/pkg/socketcan"
 	"reflect"
 	"testing"
 
@@ -31,7 +29,7 @@ func TestDecode(t *testing.T) {
 	}
 	tests := []struct {
 		m map[string]interface{}
-		f can.Frame
+		f []byte
 		e string
 	}{
 		{
@@ -42,20 +40,47 @@ func TestDecode(t *testing.T) {
 				"VBTOSObjID":     0.0,
 				"VBTOSTTC":       46.400000000000006,
 			},
-			f: can.Frame{
-				ID:     1414,
-				Length: 8,
-				Data:   [8]byte{0x54, 0x65, 0x73, 0x74, 0x00, 0x00, 0x00, 0x00},
+			f: []byte(`{"meta":{"id":1},"frames":[{"id":1414, "data":"5465737400000000"}]}`),
+		},
+		{
+			m: map[string]interface{}{
+				"ChrgngSttnCapctOfDsttnNav": 464.0,
+				"DistToDsttnNav":            0.0,
+				"DsttnTypOfNav":             5.0,
+				"FICMChrgCtrlReq":           0.0,
+				"FICMChrgSttnMchngSta":      0.0,
+				"FICMEleccLckCtrlReq":       0.0,
+				"FICMOnRutWarmOffReq":       0.0,
+				"FICMOnRutWarmOffReqV":      0.0,
+				"GudTimeToDsttnNav":         0.0,
+				"NavGudcSts":                0.0,
 			},
+			f: []byte(`{"meta":{"id":1}, "frames":[{"id":1006, "data":"54657374000000005465737400000000"}]}`),
+		},
+		{
+			m: map[string]interface{}{
+				"ChrgngSttnCapctOfDsttnNav": 464.0,
+				"DistToDsttnNav":            0.0,
+				"DsttnTypOfNav":             5.0,
+				"FICMChrgCtrlReq":           0.0,
+				"FICMChrgSttnMchngSta":      0.0,
+				"FICMEleccLckCtrlReq":       0.0,
+				"FICMOnRutWarmOffReq":       0.0,
+				"FICMOnRutWarmOffReqV":      0.0,
+				"GudTimeToDsttnNav":         0.0,
+				"NavGudcSts":                0.0,
+				"VBBrkCntlAccel":            0.0,
+				"VBTOSLatPstn":              87.125,
+				"VBTOSLonPstn":              168.75,
+				"VBTOSObjID":                0.0,
+				"VBTOSTTC":                  46.400000000000006,
+			},
+			f: []byte(`{"meta":{"id":1}, "frames":[{"id":1006, "data":"54657374000000005465737400000000"},{"id":1414, "data":"5465737400000000"}]}`),
 		},
 	}
 	fmt.Printf("The test bucket size is %d.\n\n", len(tests))
 	for i, tt := range tests {
-		f := socketcan.Frame{}
-		f.EncodeFrame(tt.f)
-		data := make([]byte, 16)
-		f.MarshalBinary(data)
-		a, err := c.Decode(data)
+		a, err := c.Decode(tt.f)
 		if !reflect.DeepEqual(tt.e, testx.Errstring(err)) {
 			t.Errorf("%d.error mismatch:\n  exp=%s\n  got=%s\n\n", i, tt.e, err)
 		} else if tt.e == "" && !reflect.DeepEqual(tt.m, a) {

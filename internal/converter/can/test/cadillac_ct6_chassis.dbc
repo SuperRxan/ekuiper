@@ -35,7 +35,17 @@ BS_:
 
 BU_: K182_PACM K43_PSCM K17_EBCM NEO K124_ASCM
 
-
+BO_ 1006 ICM_100ms_PDU38: 16 iCGM
+ SG_ DsttnTypOfNav : 7|4@0+ (1,0) [0|2] "NULL" Vector__XXX
+ SG_ NavGudcSts : 3|1@0+ (1,0) [0|1] "NULL" Vector__XXX
+ SG_ ChrgngSttnCapctOfDsttnNav : 31|8@0+ (4,0) [0|1020] "kW" Vector__XXX
+ SG_ DistToDsttnNav : 43|10@0+ (0.1,0) [0|102.3] "km" Vector__XXX
+ SG_ FICMOnRutWarmOffReqV : 66|1@0+ (1,0) [0|1] "NULL" Vector__XXX
+ SG_ FICMChrgCtrlReq : 68|2@0+ (1,0) [0|3] "NULL" Vector__XXX
+ SG_ FICMOnRutWarmOffReq : 71|2@0+ (1,0) [0|71] "NULL" Vector__XXX
+ SG_ FICMChrgSttnMchngSta : 93|2@0+ (1,0) [0|3] "NULL" Vector__XXX
+ SG_ FICMEleccLckCtrlReq : 95|2@0+ (1,0) [0|3] "NULL" Vector__XXX
+ SG_ GudTimeToDsttnNav : 103|12@0+ (1,0) [0|4095] "Min" Vector__XXX
 
 BO_ 823 PACMParkAssitCmd: 7 NEO
  SG_ RollingCounter : 35|2@0+ (1,0) [0|0] ""  NEO
