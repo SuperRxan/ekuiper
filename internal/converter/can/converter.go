@@ -29,13 +29,12 @@ import (
 	"github.com/lf-edge/ekuiper/pkg/message"
 )
 
-// The converter for socketCan format
-// Expect to receive a socketCan bytes array [16]byte with canId and data inside
-
-type packedFrames struct {
-	Meta   map[string]interface{} `json:"meta,omitempty"`
-	Frames []can.Frame            `json:"frames,omitempty"`
-}
+// The format of the json.
+// Comment out as we use fastjson
+//type packedFrames struct {
+//	Meta   map[string]interface{} `json:"meta,omitempty"`
+//	Frames []can.Frame            `json:"frames,omitempty"`
+//}
 
 type Converter struct {
 	messages map[uint32]*descriptor.Message
@@ -58,20 +57,26 @@ func (c *Converter) Decode(b []byte) (interface{}, error) {
 		return nil, fmt.Errorf("invalid frame json `%s`, should be object but receive error: %v", b, err)
 	}
 
-	pf := &packedFrames{}
-
 	// decode frames
 	rawFrames, err := obj.Get("frames").Array()
 	if err != nil {
 		return nil, fmt.Errorf("invalid frame json `%s`, should have frames array but receive error: %v", b, err)
 	}
-	pf.Frames = make([]can.Frame, len(rawFrames))
-	for i, rawFrame := range rawFrames {
+	if rawFrames == nil || len(rawFrames) == 0 {
+		return nil, fmt.Errorf("invalid frame json `%s`, should have frames array but receive empty", b)
+	}
+	result := make(map[string]interface{})
+	for _, rawFrame := range rawFrames {
 		tid, err := rawFrame.Get("id").Uint()
 		if err != nil {
 			return nil, fmt.Errorf("invalid frame json `%s`, frame id should be uint but receive error: %v", b, err)
 		}
-		pf.Frames[i].ID = uint32(tid)
+		// Filter out invalid/unknown id frame, avoid to parse them
+		desc, ok := c.messages[uint32(tid)]
+		if !ok {
+			conf.Log.Warnf("cannot find message %d", tid)
+			continue
+		}
 		tdata := rawFrame.Get("data").GetStringBytes()
 		if err != nil {
 			return nil, fmt.Errorf("invalid frame json `%s`, frame data should be string but receive error: %v", b, err)
@@ -81,43 +86,10 @@ func (c *Converter) Decode(b []byte) (interface{}, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid frame json `%s`, frame data should be hex string but receive error: %v", b, err)
 		}
-		copy(pf.Frames[i].Data[:], decodedData)
-	}
-	if pf.Frames == nil {
-		return nil, fmt.Errorf("invalid frame json `%s`, no frames", b)
-	}
-
-	// decode meta
-	metaObj, err := obj.Get("meta").Object()
-	if err != nil {
-		return nil, fmt.Errorf("invalid frame json `%s`, should have meta object but receive error: %v", b, err)
-	}
-	if metaObj != nil {
-		pf.Meta = make(map[string]interface{})
-		metaObj.Visit(func(k []byte, v *fastjson.Value) {
-			switch v.Type() {
-			case fastjson.TypeNumber:
-				pf.Meta[string(k)] = v.GetFloat64()
-			case fastjson.TypeString:
-				pf.Meta[string(k)] = v.String()
-			case fastjson.TypeTrue:
-				pf.Meta[string(k)] = true
-			case fastjson.TypeFalse:
-				pf.Meta[string(k)] = false
-			default:
-				conf.Log.Warnf("unknown type %s for meta %s", v.Type(), k)
-			}
-		})
-	}
-
-	result := make(map[string]interface{})
-	for _, frame := range pf.Frames {
-		desc, ok := c.messages[frame.ID]
-		if !ok {
-			conf.Log.Errorf("cannot find message %d", frame.ID)
-			continue
+		signals := desc.Decode(&can.Payload{Data: decodedData})
+		for _, s := range signals {
+			result[s.Signal.Name] = s.Value
 		}
-		desc.DecodeToMap(&frame, result)
 	}
 	return result, nil
 }
