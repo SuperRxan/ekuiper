@@ -88,3 +88,18 @@ func TestDecode(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkDecode(b *testing.B) {
+	f := []byte(`{"meta":{"id":1}, "frames":[{"id":1006, "data":"54657374000000005465737400000000"},{"id":1414, "data":"5465737400000000"},{"id":338, "data":"5465737400000000"},{"id":1414, "data":"5465737400000000"},{"id":340, "data":"5465737400000000"},{"id":368, "data":"5465737400000000"},{"id":1548, "data":"5465737400000000"},{"id":1547, "data":"5465737400000000"}]}`)
+
+	c, err := NewConverter("test")
+	if err != nil {
+		b.Fatal(err)
+	}
+	for i := 0; i < b.N; i++ {
+		_, err := c.Decode(f)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}

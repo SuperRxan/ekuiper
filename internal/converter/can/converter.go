@@ -15,18 +15,17 @@
 package can
 
 import (
-	"encoding/json"
+	"encoding/hex"
 	"fmt"
+	"github.com/ngjaying/can"
+	"github.com/ngjaying/can/pkg/descriptor"
+	"github.com/ngjaying/can/pkg/generate"
+	"github.com/valyala/fastjson"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/lf-edge/ekuiper/internal/conf"
-
-	"github.com/ngjaying/can"
-	"github.com/ngjaying/can/pkg/descriptor"
-	"github.com/ngjaying/can/pkg/generate"
-
 	"github.com/lf-edge/ekuiper/pkg/message"
 )
 
@@ -48,24 +47,71 @@ func (c *Converter) Encode(_ interface{}) ([]byte, error) {
 }
 
 func (c *Converter) Decode(b []byte) (interface{}, error) {
-	//frame := socketcan.Frame{}
-	//frame.UnmarshalBinary(b)
-	//if frame.IsError() {
-	//	return nil, fmt.Errorf("error frame received: %v", frame.DecodeErrorFrame())
-	//}
-	//canFrame := frame.DecodeFrame()
-	p := &packedFrames{}
-	err := json.Unmarshal(b, p)
-	//canFrame := &can.Frame{}
-	//err := canFrame.UnmarshalJSON(b)
+	var p fastjson.Parser
+	v, err := p.ParseBytes(b)
 	if err != nil {
 		return nil, fmt.Errorf("invalid frame json `%s` received: %v", b, err)
 	}
-	if p.Frames == nil {
+	// The format is staic, so we can use static struct to decode
+	obj, err := v.Object()
+	if err != nil {
+		return nil, fmt.Errorf("invalid frame json `%s`, should be object but receive error: %v", b, err)
+	}
+
+	pf := &packedFrames{}
+
+	// decode frames
+	rawFrames, err := obj.Get("frames").Array()
+	if err != nil {
+		return nil, fmt.Errorf("invalid frame json `%s`, should have frames array but receive error: %v", b, err)
+	}
+	pf.Frames = make([]can.Frame, len(rawFrames))
+	for i, rawFrame := range rawFrames {
+		tid, err := rawFrame.Get("id").Uint()
+		if err != nil {
+			return nil, fmt.Errorf("invalid frame json `%s`, frame id should be uint but receive error: %v", b, err)
+		}
+		pf.Frames[i].ID = uint32(tid)
+		tdata := rawFrame.Get("data").GetStringBytes()
+		if err != nil {
+			return nil, fmt.Errorf("invalid frame json `%s`, frame data should be string but receive error: %v", b, err)
+		}
+		decodedData := make([]byte, hex.DecodedLen(len(tdata)))
+		_, err = hex.Decode(decodedData, tdata)
+		if err != nil {
+			return nil, fmt.Errorf("invalid frame json `%s`, frame data should be hex string but receive error: %v", b, err)
+		}
+		copy(pf.Frames[i].Data[:], decodedData)
+	}
+	if pf.Frames == nil {
 		return nil, fmt.Errorf("invalid frame json `%s`, no frames", b)
 	}
+
+	// decode meta
+	metaObj, err := obj.Get("meta").Object()
+	if err != nil {
+		return nil, fmt.Errorf("invalid frame json `%s`, should have meta object but receive error: %v", b, err)
+	}
+	if metaObj != nil {
+		pf.Meta = make(map[string]interface{})
+		metaObj.Visit(func(k []byte, v *fastjson.Value) {
+			switch v.Type() {
+			case fastjson.TypeNumber:
+				pf.Meta[string(k)] = v.GetFloat64()
+			case fastjson.TypeString:
+				pf.Meta[string(k)] = v.String()
+			case fastjson.TypeTrue:
+				pf.Meta[string(k)] = true
+			case fastjson.TypeFalse:
+				pf.Meta[string(k)] = false
+			default:
+				conf.Log.Warnf("unknown type %s for meta %s", v.Type(), k)
+			}
+		})
+	}
+
 	result := make(map[string]interface{})
-	for _, frame := range p.Frames {
+	for _, frame := range pf.Frames {
 		desc, ok := c.messages[frame.ID]
 		if !ok {
 			conf.Log.Errorf("cannot find message %d", frame.ID)
