@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"net/http"
 	"os"
 	"os/signal"
@@ -34,6 +35,7 @@ import (
 	meta2 "github.com/lf-edge/ekuiper/internal/meta"
 	"github.com/lf-edge/ekuiper/internal/pkg/store"
 	"github.com/lf-edge/ekuiper/internal/processor"
+	"github.com/lf-edge/ekuiper/internal/report"
 	"github.com/lf-edge/ekuiper/internal/topo/connection/factory"
 	"github.com/lf-edge/ekuiper/internal/topo/rule"
 	"github.com/lf-edge/ekuiper/pkg/ast"
@@ -160,6 +162,24 @@ func StartUp(Version, LoadFileType string) {
 		logger.Infof("start service %s", k)
 		v.serve()
 	}
+
+	err = report.GetVinCode()
+	if err != nil {
+		panic(err)
+	}
+
+	reporter, err := report.NewReporter(conf.Config.Status.Broker, conf.Config.Status.Topic)
+	if err != nil {
+		panic(err)
+	}
+	go reporter.Run()
+
+	//report all configuration
+	status := report.NewStatus()
+	status.Type = report.TypeData
+	status.Action = report.ActionSync
+	status.Content = configurationReport()
+	report.StatusReporter.Report(status)
 
 	// Startup message
 	restHttpType := "http"

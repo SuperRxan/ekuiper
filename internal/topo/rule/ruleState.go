@@ -17,6 +17,7 @@ package rule
 import (
 	"context"
 	"fmt"
+
 	"math"
 	"math/rand"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"github.com/lf-edge/ekuiper/internal/conf"
+	"github.com/lf-edge/ekuiper/internal/report"
 	"github.com/lf-edge/ekuiper/internal/topo"
 	"github.com/lf-edge/ekuiper/internal/topo/planner"
 	"github.com/lf-edge/ekuiper/pkg/api"
@@ -269,6 +271,11 @@ func (rs *RuleState) startScheduleRule() error {
 	var cronCtx context.Context
 	cronCtx, rs.cronState.cancel = context.WithCancel(context.Background())
 	entryID, err := backgroundCron.AddFunc(rs.Rule.Options.Cron, func() {
+		status := report.NewStatus()
+		status.Id = rs.RuleId
+		status.Type = report.TypeRule
+		status.Action = report.ActionStart
+
 		if err := func() error {
 			rs.Lock()
 			defer rs.Unlock()
@@ -278,17 +285,30 @@ func (rs *RuleState) startScheduleRule() error {
 			rs.cronState.startFailedCnt++
 			rs.Unlock()
 			conf.Log.Errorf(err.Error())
+			status.ErrorMsg = err.Error()
+			status.State = 0
+			report.StatusReporter.Report(status)
 			return
 		}
+		report.StatusReporter.Report(status)
 		after := time.After(d)
 		go func(ctx context.Context) {
 			select {
 			case <-after:
 				rs.Lock()
 				defer rs.Unlock()
+				status := report.NewStatus()
+				status.Id = rs.RuleId
+				status.Type = report.TypeRule
+				status.Action = report.ActionStop
+
 				if err := rs.stop(); err != nil {
+					status.ErrorMsg = err.Error()
+					status.State = 0
+					report.StatusReporter.Report(status)
 					conf.Log.Errorf("close rule %s failed, err: %v", rs.RuleId, err)
 				}
+				report.StatusReporter.Report(status)
 				return
 			case <-cronCtx.Done():
 				return

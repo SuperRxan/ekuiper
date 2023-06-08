@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"strconv"
 	"time"
 
@@ -37,6 +38,7 @@ import (
 	"github.com/lf-edge/ekuiper/internal/meta"
 	"github.com/lf-edge/ekuiper/internal/pkg/httpx"
 	"github.com/lf-edge/ekuiper/internal/processor"
+	"github.com/lf-edge/ekuiper/internal/report"
 	"github.com/lf-edge/ekuiper/internal/server/middleware"
 	"github.com/lf-edge/ekuiper/pkg/api"
 	"github.com/lf-edge/ekuiper/pkg/ast"
@@ -325,16 +327,30 @@ func sourcesManageHandler(w http.ResponseWriter, r *http.Request, st ast.StreamT
 		}
 		jsonResponse(content, w, logger)
 	case http.MethodPost:
+		status := report.NewStatus()
+		status.Action = report.ActionCreate
+		if st == ast.TypeTable {
+			status.Type = report.TypeTable
+		} else {
+			status.Type = report.TypeStream
+		}
 		v, err := decodeStatementDescriptor(r.Body)
 		if err != nil {
+			status.ErrorMsg = err.Error()
+			status.State = 0
+			report.StatusReporter.Report(status)
 			handleError(w, err, "Invalid body", logger)
 			return
 		}
 		content, err := streamProcessor.ExecStreamSql(v.Sql)
 		if err != nil {
+			status.ErrorMsg = err.Error()
+			status.State = 0
+			report.StatusReporter.Report(status)
 			handleError(w, err, fmt.Sprintf("%s command error", cases.Title(language.Und).String(ast.StreamTypeMap[st])), logger)
 			return
 		}
+		report.StatusReporter.Report(status)
 		w.WriteHeader(http.StatusCreated)
 		w.Write([]byte(content))
 	}
@@ -354,11 +370,24 @@ func sourceManageHandler(w http.ResponseWriter, r *http.Request, st ast.StreamTy
 		}
 		jsonResponse(content, w, logger)
 	case http.MethodDelete:
+		status := report.NewStatus()
+		status.Action = report.ActionDelete
+		if st == ast.TypeStream {
+			status.Type = report.TypeStream
+		} else {
+			status.Type = report.TypeTable
+		}
+		status.Id = name
 		content, err := streamProcessor.DropStream(name, st)
 		if err != nil {
+			status.ErrorMsg = err.Error()
+			status.State = 0
+			report.StatusReporter.Report(status)
+
 			handleError(w, err, fmt.Sprintf("delete %s error", ast.StreamTypeMap[st]), logger)
 			return
 		}
+		report.StatusReporter.Report(status)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(content))
 	case http.MethodPut:
@@ -420,16 +449,29 @@ func rulesHandler(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	switch r.Method {
 	case http.MethodPost:
+		status := report.NewStatus()
+		status.Action = report.ActionCreate
+		status.Type = report.TypeRule
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
+			status.ErrorMsg = err.Error()
+			status.State = 0
+			report.StatusReporter.Report(status)
 			handleError(w, err, "Invalid body", logger)
 			return
 		}
 		id, err := createRule("", string(body))
 		if err != nil {
+			status.ErrorMsg = err.Error()
+			status.Id = id
+			status.State = 0
+			report.StatusReporter.Report(status)
 			handleError(w, err, "", logger)
 			return
 		}
+		status.Id = id
+		report.StatusReporter.Report(status)
+
 		result := fmt.Sprintf("Rule %s was created successfully.", id)
 		w.WriteHeader(http.StatusCreated)
 		w.Write([]byte(result))
@@ -459,28 +501,51 @@ func ruleHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add(ContentType, ContentTypeJSON)
 		w.Write([]byte(rule))
 	case http.MethodDelete:
+		status := report.NewStatus()
+		status.Action = report.ActionDelete
+		status.Type = report.TypeRule
+		status.Id = name
+
 		deleteRule(name)
 		content, err := ruleProcessor.ExecDrop(name)
 		if err != nil {
+			status.ErrorMsg = err.Error()
+			status.State = 0
+			report.StatusReporter.Report(status)
 			handleError(w, err, "Delete rule error", logger)
 			return
 		}
+		report.StatusReporter.Report(status)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(content))
 	case http.MethodPut:
+		status := report.NewStatus()
+		status.Action = report.ActionEdit
+		status.Type = report.TypeRule
+		status.Id = name
+
 		_, err := ruleProcessor.GetRuleById(name)
 		if err != nil {
+			status.ErrorMsg = err.Error()
+			status.State = 0
+			report.StatusReporter.Report(status)
 			handleError(w, err, "Rule not found", logger)
 			return
 		}
 
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
+			status.ErrorMsg = err.Error()
+			status.State = 0
+			report.StatusReporter.Report(status)
 			handleError(w, err, "Invalid body", logger)
 			return
 		}
 		err = updateRule(name, string(body))
 		if err != nil {
+			status.ErrorMsg = err.Error()
+			status.State = 0
+			report.StatusReporter.Report(status)
 			handleError(w, err, "Update rule error", logger)
 			return
 		}
@@ -488,11 +553,16 @@ func ruleHandler(w http.ResponseWriter, r *http.Request) {
 		_, err = ruleProcessor.ExecUpdate(name, string(body))
 		var result string
 		if err != nil {
+			status.ErrorMsg = err.Error()
+			status.State = 0
+			report.StatusReporter.Report(status)
 			handleError(w, err, "Update rule error, suggest to delete it and recreate", logger)
 			return
 		} else {
 			result = fmt.Sprintf("Rule %s was updated successfully.", name)
 		}
+
+		report.StatusReporter.Report(status)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(result))
 	}
@@ -520,11 +590,21 @@ func startRuleHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	name := vars["name"]
 
+	status := report.NewStatus()
+	status.Type = report.TypeRule
+	status.Action = report.ActionStart
+	status.Id = name
+
 	err := startRule(name)
 	if err != nil {
+		status.ErrorMsg = err.Error()
+		status.State = 0
+
+		report.StatusReporter.Report(status)
 		handleError(w, err, "start rule error", logger)
 		return
 	}
+	report.StatusReporter.Report(status)
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(fmt.Sprintf("Rule %s was started", name)))
 }
@@ -534,6 +614,13 @@ func stopRuleHandler(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	vars := mux.Vars(r)
 	name := vars["name"]
+
+	status := report.NewStatus()
+	status.Type = report.TypeRule
+	status.Action = report.ActionStop
+	status.Id = name
+
+	report.StatusReporter.Report(status)
 
 	result := stopRule(name)
 	w.WriteHeader(http.StatusOK)
@@ -546,11 +633,20 @@ func restartRuleHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	name := vars["name"]
 
+	status := report.NewStatus()
+	status.Type = report.TypeRule
+	status.Action = report.ActionRestart
+	status.Id = name
+
 	err := restartRule(name)
 	if err != nil {
+		status.ErrorMsg = err.Error()
+		status.State = 0
+		report.StatusReporter.Report(status)
 		handleError(w, err, "restart rule error", logger)
 		return
 	}
+	report.StatusReporter.Report(status)
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(fmt.Sprintf("Rule %s was restarted", name)))
 }
@@ -683,6 +779,54 @@ func configurationExport() ([]byte, error) {
 	conf.ConnectionConfig = yamlCfg.Connections
 
 	return json.Marshal(conf)
+}
+
+func getAllRulesStatus() []map[string]interface{} {
+	ruleIds, err := ruleProcessor.GetAllRules()
+	if err != nil {
+		return nil
+	}
+	sort.Strings(ruleIds)
+	result := make([]map[string]interface{}, len(ruleIds))
+	for i, id := range ruleIds {
+		status := "run"
+		_, err := getRuleState(id)
+		if err != nil {
+			status = "stopped"
+		}
+		result[i] = map[string]interface{}{
+			"id":     id,
+			"status": status,
+		}
+	}
+	return result
+}
+
+func configurationReport() map[string]interface{} {
+	ext := map[string]interface{}{
+		"streams": []string{},
+		"tables":  []string{},
+		"rules":   []interface{}{},
+	}
+
+	ruleSet := rulesetProcessor.ExportRuleSet()
+	if ruleSet != nil {
+		streams := make([]string, 0)
+		for key, _ := range ruleSet.Streams {
+			streams = append(streams, key)
+		}
+		ext["streams"] = streams
+
+		tables := make([]string, 0)
+		for key, _ := range ruleSet.Tables {
+			tables = append(tables, key)
+		}
+		ext["tables"] = tables
+	}
+
+	ext["rules"] = getAllRulesStatus()
+
+	return ext
 }
 
 func configurationExportHandler(w http.ResponseWriter, r *http.Request) {
